@@ -1,0 +1,69 @@
+name: Scheduled Scrape
+
+# Run on a cron schedule AND allow manual triggers
+on:
+  schedule:
+    # Every day at 08:00 UTC
+    - cron: "0 8 * * *"
+  workflow_dispatch:
+    inputs:
+      url:
+        description: "Target URL"
+        required: true
+        default: "https://books.toscrape.com/"
+      selector:
+        description: "CSS container selector"
+        required: true
+        default: "article.product_pod"
+      fields:
+        description: "Field specs (comma-separated)"
+        required: true
+        default: "title:h3 a@title, price:.price_color"
+      max_pages:
+        description: "Maximum pages to scrape"
+        required: false
+        default: "5"
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # needed to commit output artifacts
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install web-scraper-pro
+        run: pip install -e "."
+
+      - name: Run scrape
+        env:
+          SCRAPER_RATE_LIMIT: "1.0"
+          SCRAPER_MAX_RETRIES: "3"
+        run: |
+          URL="${{ github.event.inputs.url || 'https://books.toscrape.com/' }}"
+          SELECTOR="${{ github.event.inputs.selector || 'article.product_pod' }}"
+          FIELDS="${{ github.event.inputs.fields || 'title:h3 a@title, price:.price_color' }}"
+          MAX_PAGES="${{ github.event.inputs.max_pages || '5' }}"
+
+          web-scraper scrape \
+            --url "$URL" \
+            --selector "$SELECTOR" \
+            --fields "$FIELDS" \
+            --paginate "li.next a" \
+            --max-pages "$MAX_PAGES" \
+            --output output/listings.xlsx
+
+      - name: Upload Excel artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: listings-${{ github.run_number }}
+          path: output/listings.xlsx
+          retention-days: 30
